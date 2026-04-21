@@ -1,42 +1,41 @@
 package com.example.flashcardmaster
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp  // THIS IS THE MISSING IMPORT!
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.example.flashcardmaster.ui.*
-import com.example.flashcardmaster.ui.theme.*
+import com.example.flashcardmaster.ui.theme.FLASHCARDMASTERTheme
 
 class MainActivity : ComponentActivity() {
+
+    private val viewModel: CardViewModel by viewModels {
+        CardViewModelFactory(applicationContext)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
-            FlashcardTheme {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(DeepSpace, Color(0xFF05080f)),
-                                radius = 1200f
-                            )
-                        )
+            FLASHCARDMASTERTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    CanvasBackground()
-                    val viewModel: CardViewModel = viewModel(
-                        factory = CardViewModelFactory(applicationContext)
-                    )
-                    FlashcardApp(viewModel)
+                    FlashcardMasterApp(viewModel)
                 }
             }
         }
@@ -44,87 +43,108 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun CanvasBackground() {
-    Canvas(modifier = Modifier.fillMaxSize()) {
-        val spacing = 28.dp.toPx()
-        val dotColor = Color.White.copy(alpha = 0.055f)
-        for (x in 0..size.width.toInt() step spacing.toInt()) {
-            for (y in 0..size.height.toInt() step spacing.toInt()) {
-                drawCircle(
-                    color = dotColor,
-                    radius = 1f,
-                    center = Offset(x.toFloat(), y.toFloat())
-                )
+fun FlashcardMasterApp(viewModel: CardViewModel) {
+    val navController = rememberNavController()
+    val context = LocalContext.current
+
+    // Camera permission handling
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+    }
+
+    // Listen for camera permission requests from ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.cameraPermissionRequested.collect {
+            if (!hasCameraPermission) {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
             }
         }
     }
-}
 
-@Composable
-fun FlashcardApp(viewModel: CardViewModel) {
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.DECKS) }
-    var selectedDeckId by remember { mutableStateOf<Int?>(null) }
-
-    when (val screen = currentScreen) {
-        is Screen.DECKS -> DecksScreen(
-            viewModel = viewModel,
-            onNavigateToDeck = { deckId ->
-                selectedDeckId = deckId
-                currentScreen = Screen.DECK_DETAIL
-            },
-            onNavigateToAddDeck = { currentScreen = Screen.ADD_DECK }
-        )
-
-        is Screen.DECK_DETAIL -> {
-            if (selectedDeckId != null) {
-                DeckDetailScreen(
-                    deckId = selectedDeckId!!,
-                    viewModel = viewModel,
-                    onNavigateBack = { currentScreen = Screen.DECKS },
-                    onNavigateToAddCard = { id ->
-                        currentScreen = Screen.ADD_CARD(id)
-                    },
-                    onNavigateToReview = { id ->
-                        currentScreen = Screen.REVIEW(id)
-                    }
-                )
-            }
-        }
-
-        is Screen.ADD_DECK -> AddDeckScreen(
-            onSaveClick = { name, description, icon, color ->
-                viewModel.addDeck(name, description, icon, color)
-                currentScreen = Screen.DECKS
-            },
-            onNavigateBack = { currentScreen = Screen.DECKS }
-        )
-
-        is Screen.ADD_CARD -> {
-            AddCardScreen(
-                onSaveClick = { front, back, frontImageUri, backImageUri ->
-                    viewModel.addCard(screen.deckId, front, back, frontImageUri, backImageUri)
-                    currentScreen = Screen.DECK_DETAIL
+    NavHost(
+        navController = navController,
+        startDestination = "decks"
+    ) {
+        composable("decks") {
+            DecksScreen(
+                viewModel = viewModel,
+                onNavigateToDeck = { deckId ->
+                    navController.navigate("deck/$deckId")
                 },
-                onNavigateBack = { currentScreen = Screen.DECK_DETAIL }
+                onNavigateToAddDeck = {
+                    navController.navigate("addDeck")
+                }
             )
         }
 
-        is Screen.REVIEW -> {
-            val cards by viewModel.getDueCardsForDeck(screen.deckId).collectAsState(initial = emptyList())
+        composable("addDeck") {
+            AddDeckScreen(
+                onSaveClick = { name, description, icon, color ->
+                    viewModel.addDeck(name, description, icon, color)
+                    navController.popBackStack()
+                },
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("deck/{deckId}") { backStackEntry ->
+            val deckId = backStackEntry.arguments?.getString("deckId")?.toIntOrNull() ?: 0
+            DeckDetailScreen(
+                deckId = deckId,
+                viewModel = viewModel,
+                onNavigateBack = {
+                    navController.popBackStack()
+                },
+                onNavigateToAddCard = { id ->
+                    navController.navigate("addCard/$id")
+                },
+                onNavigateToReview = { id ->
+                    navController.navigate("review/$id")
+                }
+            )
+        }
+
+        composable("addCard/{deckId}") { backStackEntry ->
+            val deckId = backStackEntry.arguments?.getString("deckId")?.toIntOrNull() ?: 0
+            AddCardScreen(
+                onSaveClick = { front, back, frontImageUri, backImageUri ->
+                    viewModel.addCard(deckId, front, back, frontImageUri, backImageUri)
+                    navController.popBackStack()
+                },
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("review/{deckId}") { backStackEntry ->
+            val deckId = backStackEntry.arguments?.getString("deckId")?.toIntOrNull() ?: 0
+            val cards by viewModel.getDueCardsForDeck(deckId)
+                .collectAsStateWithLifecycle(emptyList())
+
             ReviewScreen(
                 cards = cards,
-                onFinishReview = { currentScreen = Screen.DECK_DETAIL },
-                onRateCard = { card, quality -> viewModel.rateCard(card, quality) },
+                onFinishReview = {
+                    navController.popBackStack()
+                },
+                onRateCard = { card, quality ->
+                    viewModel.rateCard(card, quality)
+                },
                 viewModel = viewModel
             )
         }
     }
-}
-
-sealed class Screen {
-    object DECKS : Screen()
-    object DECK_DETAIL : Screen()
-    object ADD_DECK : Screen()
-    data class ADD_CARD(val deckId: Int) : Screen()
-    data class REVIEW(val deckId: Int) : Screen()
 }

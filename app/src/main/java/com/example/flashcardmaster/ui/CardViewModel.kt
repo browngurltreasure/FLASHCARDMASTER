@@ -1,7 +1,9 @@
 package com.example.flashcardmaster.ui
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.ViewModelProvider
@@ -33,8 +35,24 @@ class CardViewModel(private val database: CardDatabase, private val context: Con
     private val _shakeCount = MutableStateFlow(0)
     val shakeCount: StateFlow<Int> = _shakeCount.asStateFlow()
 
+    // NEW: Camera permission request event
+    private val _cameraPermissionRequested = MutableSharedFlow<Unit>()
+    val cameraPermissionRequested: SharedFlow<Unit> = _cameraPermissionRequested.asSharedFlow()
+
     init {
         initializeSensors()
+    }
+
+    // NEW: Check camera permission
+    fun checkCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // NEW: Request camera permission
+    fun requestCameraPermission() {
+        viewModelScope.launch {
+            _cameraPermissionRequested.emit(Unit)
+        }
     }
 
     fun triggerHapticFeedback(type: String) {
@@ -77,7 +95,6 @@ class CardViewModel(private val database: CardDatabase, private val context: Con
         }
     }
 
-    // NEW: Delete deck
     fun deleteDeck(deck: Deck) {
         viewModelScope.launch {
             deckDao.deleteDeck(deck)
@@ -107,7 +124,6 @@ class CardViewModel(private val database: CardDatabase, private val context: Con
         }
     }
 
-    // NEW: Delete card
     fun deleteCard(card: Card) {
         viewModelScope.launch {
             cardDao.deleteCard(card)
