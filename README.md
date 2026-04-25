@@ -1,6 +1,6 @@
 📱 FLASHCARD MASTER - Clean GitHub Description
 
-A stunning, AI-inspired flashcard application that combines beautiful data-visualization design with powerful spaced repetition technology.
+A stunning,flashcard application that combines beautiful data-visualization design with powerful spaced repetition technology.
 
 ✨ Features
 
